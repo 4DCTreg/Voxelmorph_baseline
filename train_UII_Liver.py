@@ -64,7 +64,7 @@ parser.add_argument('--multichannel', action='store_true',
 # training parameters
 parser.add_argument('--gpu', default='0', help='GPU ID number(s), comma-separated (default: 0)')
 parser.add_argument('--batch-size', type=int, default=8, help='batch size (default: 1)')
-parser.add_argument('--epochs', type=int, default= 100,
+parser.add_argument('--epochs', type=int, default= 200,
                     help='number of training epochs (default: 1500)')
 parser.add_argument('--steps-per-epoch', type=int, default=200,
                     help='frequency of model saves (default: 100)')
@@ -187,7 +187,7 @@ losses += [vxm.losses.Grad('l2', loss_mult=args.int_downsize).loss]
 weights += [args.weight]
 
 losses += [losses_RL.Dice_trip().loss]
-weights += [0.1]
+weights += [1]
 
 losses += [vxm.losses.MSE().loss]
 weights += [0.01]

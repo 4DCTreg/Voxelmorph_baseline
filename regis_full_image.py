@@ -65,10 +65,10 @@ else:
 
 multichannel = False
 add_feat_axis = not multichannel
-image_path = 'D:/LiverDataset/UII_liver/train_UII_patch_py2/'
-save_path = 'D:/RegProjectLearn/voxeltorch_reg_liver/test_results/'
+
+save_path = 'D:/DeepRegProject/Voxelmorph_baseline/Results/'
 n_index = 0
-model_name = 'D:/RegProjectLearn/voxeltorch_reg_liver/models/MIND_mask_80/0200.pt'
+model_name = 'D:/DeepRegProject/Voxelmorph_baseline/models/MI_add_all_mask/0100.pt'
 # load and set up model
 
 model = vxm.networks_xp.VxmDense.load(model_name, device)
@@ -171,7 +171,7 @@ fullshape = [320, 256, 256]
 warp_mask_function = SpatialTransformer_new(trshape)
 warp_full_function = SpatialTransformer_new(fullshape)
 
-x_1, y_1, z_1, x_2, y_2, z_2 = get_patches_all([80, 80, 80], [320, 256, 256], 50)
+
 Dice_or_all = 0
 Dice_after_all = 0
 
@@ -186,32 +186,74 @@ for n_patients in range(6):
     mask_artery_name = data_path + 'hepatic_artery0' + str(n_patients + 1) + '.nii'
     mask_vein_name = data_path + 'hepatic_vein0' + str(n_patients + 1) + '.nii'
     mask_portal_vein_name = data_path + 'portal_vein0' + str(n_patients + 1) + '.nii'
+    mask_all_vessel_moving = data_path + 'mask_movingall_0'+str(n_patients + 1) + '.nii'
+    mask_all_vessel_fixed = data_path + 'mask_fixedall_0'+str(n_index + 1) + '.nii'
 
-    moving_all = vxm.py.utils.load_volfile(image_Ap_name, add_batch_axis=True, add_feat_axis=add_feat_axis)
-    fixed_all, fixed_affine_all = vxm.py.utils.load_volfile(
+    moving_img = vxm.py.utils.load_volfile(image_Ap_name, add_batch_axis=True, add_feat_axis=add_feat_axis)
+    fixed_img, fixed_affine_all = vxm.py.utils.load_volfile(
         image_Pvp_name, add_batch_axis=True, add_feat_axis=add_feat_axis, ret_affine=True)
-
     mask_moving = vxm.py.utils.load_volfile(mask_Ap_name, add_batch_axis=True, add_feat_axis=add_feat_axis)
     mask_fixed, mask_fixed_affine = vxm.py.utils.load_volfile(
         mask_Pvp_name, add_batch_axis=True, add_feat_axis=add_feat_axis, ret_affine=True)
+    mask_artery = vxm.py.utils.load_volfile(mask_artery_name, add_batch_axis=True, add_feat_axis=add_feat_axis)
+    moving_all_vessel = vxm.py.utils.load_volfile(mask_all_vessel_moving, add_batch_axis=True,
+                                                  add_feat_axis=add_feat_axis)
+    fixed_all_vessel = vxm.py.utils.load_volfile(mask_all_vessel_fixed, add_batch_axis=True,
+                                                 add_feat_axis=add_feat_axis)
+    mask_vein = vxm.py.utils.load_volfile(mask_vein_name, add_batch_axis=True, add_feat_axis=add_feat_axis)
+    mask_portal_vein = vxm.py.utils.load_volfile(mask_portal_vein_name, add_batch_axis=True,
+                                                 add_feat_axis=add_feat_axis)
 
-    input_moving_full = torch.from_numpy(moving_all).to(device).float().permute(0, 4, 1, 2, 3)
-    input_fixed_full = torch.from_numpy(fixed_all).to(device).float().permute(0, 4, 1, 2, 3)
+    input_moving_full = torch.from_numpy(moving_img).to(device).float().permute(0, 4, 1, 2, 3)
+    input_fixed_full = torch.from_numpy(fixed_img).to(device).float().permute(0, 4, 1, 2, 3)
     input_mask_moving_full = torch.from_numpy(mask_moving).to(device).float().permute(0, 4, 1, 2, 3)
     input_mask_fixed_full = torch.from_numpy(mask_fixed).to(device).float().permute(0, 4, 1, 2, 3)
+    input_mask_artery = torch.from_numpy(mask_artery).to(device).float().permute(0, 4, 1, 2, 3)
+    input_moving_vessel = torch.from_numpy(moving_all_vessel).to(device).float().permute(0, 4, 1, 2, 3)
+    input_fixed_vessel = torch.from_numpy(fixed_all_vessel).to(device).float().permute(0, 4, 1, 2, 3)
+    mask_vein = torch.from_numpy(mask_vein).to(device).float().permute(0, 4, 1, 2, 3)
+    mask_portal_vein = torch.from_numpy(mask_portal_vein).to(device).float().permute(0, 4, 1, 2, 3)
+
     Dice_or_full = Dice_func.loss(input_mask_moving_full, input_mask_fixed_full)
     with torch.no_grad():
-        warp_full = model(input_moving_full, input_fixed_full, input_mask_moving_full,input_mask_fixed_full, regist_full=True)
-    mask_moved_all_after = warp_full_function(input_mask_moving_full, warp_full)
+        warp_full = model(input_moving_full, input_fixed_full, input_moving_vessel, input_fixed_vessel,
+                          input_mask_moving_full, regist_full=True)
 
+    mask_moved_all_after = warp_full_function(input_mask_moving_full, warp_full)
+    mask_artery_moved = warp_full_function(input_moving_vessel,warp_full)
+    moved_img = warp_full_function(input_moving_full, warp_full)
     Dice_after_full = Dice_func.loss(mask_moved_all_after, input_mask_fixed_full)
-    moved_full = warp_full_function(input_moving_full, warp_full)
-    image_Ap_after = moved_full.detach().cpu().numpy().squeeze()
-    mask_moved_all_after = mask_moved_all_after.detach().cpu().numpy().squeeze()
-    mask_mov_name = 'D:/LiverDataset/UII_liver/train_UII_patch_py2/test_results/'+'mask_Ap0'+str(n_patients+1)+'MIND_mask_add_train_moved.nii'
-    test_mov_name = 'D:/LiverDataset/UII_liver/train_UII_patch_py2/test_results/'+'image_Ap0'+str(n_patients+1)+'MIND_mask_add_train_moved.nii'
-    vxm.py.utils.save_volfile(image_Ap_after, test_mov_name)
-    vxm.py.utils.save_volfile(mask_moved_all_after, mask_mov_name)
-    print(Dice_or_full)
+    image_Ap_after = moved_img.detach().cpu().numpy().squeeze()
+    mask_moved_img = mask_moved_all_after.detach().cpu().numpy().squeeze()
+    mask_artery_moved = mask_artery_moved.detach().cpu().numpy().squeeze()
+    mask_vein = mask_vein.detach().cpu().numpy().squeeze()
+    mask_portal_vein = mask_portal_vein.detach().cpu().numpy().squeeze()
+    mask_artery_align = input_mask_artery.detach().cpu().numpy().squeeze()
+    mask_fixed = input_mask_fixed_full.detach().cpu().numpy().squeeze()
+    warp_full_save = warp_full.detach().cpu().numpy().squeeze()
+
+    mask_artery_moved_name = save_path + 'mask_artery0'+str(n_patients+1) + 'MI_v1.nii'
+    mask_moved_name = save_path + 'mask_Ap0'+str(n_patients+1)+'MI_v1.nii'
+    vxm.py.utils.save_volfile(mask_artery_moved.round(), mask_artery_moved_name)
+    vxm.py.utils.save_volfile(mask_moved_img.round(), mask_moved_name)
+
+    deformation_field_name = save_path + 'deformation_field0' + str(n_patients+1) + 'MI_v1.nii'
+    vxm.py.utils.save_volfile(warp_full_save[0, :, :, :], deformation_field_name)
+
+    # visual compare
+    mask_vein_align = mask_vein
+    mask_vein_align[mask_vein_align == 1] = 2
+    mask_portal_vein_align = mask_portal_vein
+    mask_portal_vein_align[mask_portal_vein_align == 1] = 3
+    mask_all_vessel_after = mask_artery_align.round() + mask_portal_vein_align+mask_vein_align
+    mask_all_vessel_name = save_path + 'mask_all_vessel0' + str(n_patients+1) + 'MI_v1.nii'
+    vxm.py.utils.save_volfile(mask_all_vessel_after, mask_all_vessel_name)
+
+    mask_moved_img_align = mask_moved_img.round()
+    mask_moved_img_align[mask_moved_img_align == 1] = 2
+    mask_liver_all = mask_moved_img_align + mask_fixed
+    mask_liver_name = save_path + 'mask_all_liver0' + str(n_patients+1) + 'MI_v1.nii'
+    vxm.py.utils.save_volfile(mask_liver_all, mask_liver_name)
+
     print(Dice_after_full)
 
