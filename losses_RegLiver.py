@@ -531,9 +531,6 @@ class Dice_trip:
     """
 
     def loss(self, y_true, y_pred):
-        y_true = y_true.round()
-        y_pred = y_pred*2
-        y_pred = y_pred.round()
 
         ndims = len(list(y_pred.size())) - 2
         vol_axes = list(range(2, ndims + 2))

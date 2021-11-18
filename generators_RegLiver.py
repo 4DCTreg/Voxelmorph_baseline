@@ -231,6 +231,134 @@ def volgen_paried_with_seg(
         yield tuple(vols_mov), tuple(vols_fix)
 
 
+def volgen_paried_UIIall_baseline(
+        vol_names,
+        n_paired,
+        batch_size=1,
+        patch_size=[128, 128, 128],
+        return_segs=True,
+        np_var='vol',
+        pad_shape=None,
+        resize_factor=1,
+        add_feat_axis=True
+):
+
+    # convert glob path to filenames
+    if isinstance(vol_names, str):
+        if os.path.isdir(vol_names):
+            vol_names = os.path.join(vol_names, '*')
+        vol_names = glob.glob(vol_names)
+    while True:
+        index = np.random.randint(n_paired, size=1)
+        index_mov_ap = index[0] * 6
+        index_fix = index[0] * 6 + 3
+        index_mov_ap_mask = index[0] * 6 + 1
+        index_fix_mask = index[0] * 6 + 4
+        index_artery = index[0] * 6 + 2
+        index_vein = index[0] * 6 + 5
+        load_params = dict(np_var=np_var, add_batch_axis=True, add_feat_axis=add_feat_axis, pad_shape=pad_shape,
+                           resize_factor=resize_factor)
+        imgs_fix = utils.load_volfile(vol_names[index_fix], **load_params)
+        imgs_mov_ap = utils.load_volfile(vol_names[index_mov_ap], **load_params)
+
+        full_size = imgs_fix.shape
+        col_idx = np.random.randint(0, full_size[2] - patch_size[1], batch_size)
+        row_idx = np.random.randint(0, full_size[1] - patch_size[0], batch_size)
+        sl_idx = np.random.randint(0, full_size[3] - patch_size[2], batch_size)
+        imgs_fix_patches = [imgs_fix[0, row_idx[i]:row_idx[i] + patch_size[0], col_idx[i]:col_idx[i] + patch_size[1], sl_idx[i]:sl_idx[i] + patch_size[2], 0].reshape(1,
+                     patch_size[0], patch_size[1],  patch_size[2], 1) for i in range(batch_size)]
+        imgs_movap_patches = [imgs_mov_ap[0, row_idx[i]:row_idx[i] + patch_size[0], col_idx[i]:col_idx[i] + patch_size[1], sl_idx[i]:sl_idx[i] + patch_size[2], 0].reshape(1,
+                     patch_size[0], patch_size[1],  patch_size[2], 1) for i in range(batch_size)]
+
+        vols_mov = [np.concatenate(imgs_movap_patches, axis=0)]
+        vols_fix = [np.concatenate(imgs_fix_patches, axis=0)]
+
+        imgs_artery = utils.load_volfile(vol_names[index_artery], **load_params)
+        imgs_vein = utils.load_volfile(vol_names[index_vein], **load_params)
+
+        imgs_artery_patches = [imgs_artery[0, row_idx[i]:row_idx[i] + patch_size[0], col_idx[i]:col_idx[i] +
+                               patch_size[1], sl_idx[i]:sl_idx[i] + patch_size[2], 0].reshape(1, patch_size[0],
+                               patch_size[1], patch_size[2], 1) for i in range(batch_size)]
+        imgs_vein_patches = [imgs_vein[0, row_idx[i]:row_idx[i] + patch_size[0], col_idx[i]:col_idx[i] + patch_size[1],
+                             sl_idx[i]:sl_idx[i] + patch_size[2], 0].reshape(1, patch_size[0], patch_size[1], patch_size[2], 1)
+                             for i in range(batch_size)]
+
+        # optionally load segmentations and concatenate
+        if return_segs:
+            load_params['np_var'] = 'seg'  # be sure to load seg
+            segs_mov_ap = utils.load_volfile(vol_names[index_mov_ap_mask], **load_params)
+
+            segs_fix = utils.load_volfile(vol_names[index_fix_mask], **load_params)
+            imgs_fix_seg_patches = [
+                segs_fix[0, row_idx[i]:row_idx[i] + patch_size[0], col_idx[i]:col_idx[i] + patch_size[1], sl_idx[i]:sl_idx[i] + patch_size[2],
+                0].reshape(1, patch_size[0], patch_size[1], patch_size[2], 1) for i
+                in range(batch_size)]
+            imgs_movap_seg_patches = [
+                segs_mov_ap[0, row_idx[i]:row_idx[i] + patch_size[0], col_idx[i]:col_idx[i] + patch_size[1], sl_idx[i]:sl_idx[i] + patch_size[2],
+                0].reshape(1, patch_size[0], patch_size[1], patch_size[2], 1) for i
+                in range(batch_size)]
+
+        vols_mov.append(np.concatenate(imgs_movap_seg_patches))
+        vols_mov.append(np.concatenate(imgs_artery_patches))
+        vols_fix.append(np.concatenate(imgs_fix_seg_patches))
+        vols_fix.append(np.concatenate(imgs_vein_patches))
+
+
+        yield tuple(vols_mov), tuple(vols_fix)
+
+
+def volgen_paried_UIIall_val(
+        vol_names,
+        return_segs=True,
+        np_var='vol',
+        pad_shape=None,
+        resize_factor=1,
+        add_feat_axis=True
+):
+
+    # convert glob path to filenames
+    if isinstance(vol_names, str):
+        if os.path.isdir(vol_names):
+            vol_names = os.path.join(vol_names, '*')
+        vol_names = glob.glob(vol_names)
+    index = 0
+    while index < 9:
+
+        index_mov_ap = index * 6
+        index_fix = index * 6 + 3
+        index_mov_ap_mask = index * 6 + 1
+        index_fix_mask = index * 6 + 4
+        index_artery = index * 6 + 2
+        index_vein = index * 6 + 5
+
+        # load volumes and concatenate
+        load_params = dict(np_var=np_var, add_batch_axis=True, add_feat_axis=add_feat_axis, pad_shape=pad_shape,
+                           resize_factor=resize_factor)
+        imgs_fix = [utils.load_volfile(vol_names[index_fix], **load_params)]
+        imgs_mov = [utils.load_volfile(vol_names[index_mov_ap], **load_params)]
+        imgs_mov_vessel = utils.load_volfile(vol_names[index_artery], **load_params)
+        imgs_fix_vessel = utils.load_volfile(vol_names[index_vein], **load_params)
+
+        vols_mov = [np.concatenate(imgs_mov, axis=0)]
+        vols_fix = [np.concatenate(imgs_fix, axis=0)]
+
+        # optionally load segmentations and concatenate
+        if return_segs:
+            load_params['np_var'] = 'seg'  # be sure to load seg
+            segs_mov = [utils.load_volfile(vol_names[index_mov_ap_mask], **load_params)]
+            segs_fix = [utils.load_volfile(vol_names[index_fix_mask], **load_params)]
+            vols_mov.append(np.concatenate(segs_mov, axis=0))
+            vols_fix.append(np.concatenate(segs_fix, axis=0))
+        vols_mov.append(imgs_mov_vessel)
+        vols_fix.append(imgs_fix_vessel)
+
+        yield tuple(vols_mov), tuple(vols_fix)
+        index = index+1
+        if index == 9:
+            index = 0
+
+
+
 def volgen_paried_randpatch(
         vol_names,
         n_paired,
@@ -490,7 +618,7 @@ def scan_to_scan_norand_mask(vol_names, bidir=False, batch_size=1, prob_same=0, 
         yield (invols, outvols)
 
 
-def scan_to_scan_ranpatch_mask(vol_names, bidir=False, batch_size=1, prob_same=0, no_warp=False, **kwargs):
+def scan_to_scan_UIIall(vol_names, bidir=False, batch_size=1, prob_same=0, no_warp=False, **kwargs):
     """
     Generator for scan-to-scan registration.
 
@@ -503,16 +631,18 @@ def scan_to_scan_ranpatch_mask(vol_names, bidir=False, batch_size=1, prob_same=0
         kwargs: Forwarded to the internal volgen generator.
     """
     zeros = None
-    n_paired = (len(vol_names) / 9)
+    n_paired = (len(vol_names) / 6)
     # gen_paired = volgen_paired(vol_names, int(n_paired), batch_size=batch_size, **kwargs)
-    gen_paired = volgen_paried_randpatch(vol_names, int(n_paired), batch_size=batch_size, **kwargs)
+    #gen_paired = volgen_paried_randpatch(vol_names, int(n_paired), batch_size=batch_size, **kwargs)
+    gen_paired = volgen_paried_UIIall_baseline(vol_names, int(n_paired), batch_size=batch_size, patch_size=[160, 128, 128],
+                                               **kwargs)
 
     while True:
         scan1, scan2 = next(gen_paired)
-        scan1_seg = scan1[1]
-        scan2_seg = scan2[1]
-        scan1_liver_seg = scan1[2]
-        scan2_liver_seg = scan2[2]
+        scan1_liver_seg = scan1[1]
+        scan2_liver_seg = scan2[1]
+        scan1_vessel_seg = scan1[2]
+        scan2_vessel_seg = scan2[2]
         scan1 = scan1[0]
         scan2 = scan2[0]
 
@@ -532,14 +662,61 @@ def scan_to_scan_ranpatch_mask(vol_names, bidir=False, batch_size=1, prob_same=0
             zeros = np.zeros((batch_size, *shape, len(shape)))
         # invols = [src_vol, trg_vol, src_seg]
         # outvols = [trg_vol, zeros, trg_seg]
-        invols = [scan1, scan2, scan1_seg, scan2_seg, scan1_liver_seg]
+        invols = [scan1, scan2, scan1_liver_seg, scan2_liver_seg, scan1_vessel_seg, scan2_vessel_seg]
         outvols = [scan2, scan1] if bidir else [scan2]
         if not no_warp:
             outvols.append(zeros)
-        outvols.append(scan2_seg)
         outvols.append(scan2_liver_seg)
+        outvols.append(scan2_vessel_seg)
 
         yield (invols, outvols)
+
+
+def scan_to_scan_UIIall_val(vol_names, bidir=False, batch_size=1, prob_same=0, no_warp=False, **kwargs):
+    """
+    Generator for scan-to-scan registration.
+
+    Parameters:
+        vol_names: List of volume files to load.
+        bidir: Yield input image as output for bidirectional models. Default is False.
+        batch_size: Batch size. Default is 1.
+        prob_same: Induced probability that source and target inputs are the same. Default is 0.
+        no_warp: Excludes null warp in output list if set to True (for affine training). Default if False.
+        kwargs: Forwarded to the internal volgen generator.
+    """
+    zeros = None
+    n_paired = (len(vol_names) / 6)
+    gen_paired = volgen_paried_UIIall_val(vol_names, **kwargs)
+
+    while True:
+        scan1, scan2 = next(gen_paired)
+        scan1_liver_seg = scan1[1]
+        scan2_liver_seg = scan2[1]
+        scan1_vessel_seg = scan1[2]
+        scan2_vessel_seg = scan2[2]
+        scan1 = scan1[0]
+        scan2 = scan2[0]
+
+        # scan2 = next(genfix)[0]
+        # scan1 = next(genmov)[0]
+
+        # some induced chance of making source and target equal
+        if prob_same > 0 and np.random.rand() < prob_same:
+            if np.random.rand() > 0.5:
+                scan1 = scan2
+            else:
+                scan2 = scan1
+
+        # cache zeros
+        if not no_warp and zeros is None:
+            shape = scan1.shape[1:-1]
+            zeros = np.zeros((batch_size, *shape, len(shape)))
+
+        invols = [scan1, scan2, scan1_liver_seg, scan2_liver_seg, scan1_vessel_seg, scan2_vessel_seg]
+        outvols = [scan2_liver_seg, scan2_vessel_seg]
+        yield (invols, outvols)
+
+
 
 
 def scan_to_atlas(vol_names, atlas, bidir=False, batch_size=1, no_warp=False, **kwargs):

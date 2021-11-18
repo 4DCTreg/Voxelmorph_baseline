@@ -52,7 +52,7 @@ import voxelmorph as vxm  # nopep8
 parser = argparse.ArgumentParser()
 
 # data organization parameters
-parser.add_argument('--img-list',  default='list_image_add_all.txt', help='line-seperated list of training files')
+parser.add_argument('--img-list',  default='UII_all_train_new.txt', help='line-seperated list of training files')
 parser.add_argument('--img-prefix', help='optional input image file prefix')
 parser.add_argument('--img-suffix', help='optional input image file suffix')
 parser.add_argument('--atlas', help='atlas filename (default: data/atlas_norm.npz)')
@@ -63,10 +63,10 @@ parser.add_argument('--multichannel', action='store_true',
 
 # training parameters
 parser.add_argument('--gpu', default='0', help='GPU ID number(s), comma-separated (default: 0)')
-parser.add_argument('--batch-size', type=int, default=8, help='batch size (default: 1)')
-parser.add_argument('--epochs', type=int, default= 200,
+parser.add_argument('--batch-size', type=int, default=4, help='batch size (default: 1)')
+parser.add_argument('--epochs', type=int, default=500,
                     help='number of training epochs (default: 1500)')
-parser.add_argument('--steps-per-epoch', type=int, default=200,
+parser.add_argument('--steps-per-epoch', type=int, default=120,
                     help='frequency of model saves (default: 100)')
 parser.add_argument('--load-model',help='optional model file to initialize with')
 parser.add_argument('--initial-epoch', type=int, default=0,
@@ -87,7 +87,7 @@ parser.add_argument('--int-downsize', type=int, default=2,
 parser.add_argument('--bidir', action='store_true', help='enable bidirectional cost function')
 
 # loss hyperparameters
-parser.add_argument('--image-loss', default='MI',
+parser.add_argument('--image-loss', default='mse',
                     help='image reconstruction loss - can be mse or ncc (default: mse)')
 parser.add_argument('--lambda', type=float, dest='weight', default=0.01,
                     help='weight of deformation loss (default: 0.01)')
@@ -95,14 +95,36 @@ args = parser.parse_args()
 
 bidir = args.bidir
 
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+
+
 # load and prepare training data
 train_files = vxm.py.utils.read_file_list(args.img_list, prefix=args.img_prefix,
                                           suffix=args.img_suffix)
 assert len(train_files) > 0, 'Could not find any training data.'
 
+validation_files = vxm.py.utils.read_file_list('UII_all_validation.txt', prefix=args.img_prefix,
+                                          suffix=args.img_suffix)
+
 # no need to append an extra feature axis if data is multichannel
 add_feat_axis = not args.multichannel
-
+val_generator = genRL.scan_to_scan_UIIall_val(validation_files, batch_size=args.batch_size, bidir=args.bidir, add_feat_axis=add_feat_axis)
 if args.atlas:
     # scan-to-atlas generator
     atlas = vxm.py.utils.load_volfile(args.atlas, np_var='vol',
@@ -112,10 +134,8 @@ if args.atlas:
                                              add_feat_axis=add_feat_axis)
 else:
     # scan-to-scan generator
-    generator = genRL.scan_to_scan_ranpatch_mask(
+    generator = genRL.scan_to_scan_UIIall(
         train_files, batch_size=args.batch_size, bidir=args.bidir, add_feat_axis=add_feat_axis)
-
-val_genarator = genRL.scan_to_scan_ranpatch_mask(train_files, batch_size=args.batch_size, bidir=args.bidir, add_feat_axis=add_feat_axis)
 
 # extract shape from sampled input
 inshape = next(generator)[0][0].shape[1:-1]
@@ -186,20 +206,20 @@ else:
 losses += [vxm.losses.Grad('l2', loss_mult=args.int_downsize).loss]
 weights += [args.weight]
 
-losses += [losses_RL.Dice_trip().loss]
-weights += [1]
-
-losses += [vxm.losses.MSE().loss]
+losses += [losses_RL.Dice().loss]
 weights += [0.01]
 
+losses += [losses_RL.Dice_trip().loss]
+weights += [0.01]
 
+val_losses = losses_RL.Dice_trip().loss
 
 # training loops
 for epoch in range(args.initial_epoch, args.epochs):
 
     model.train()
     # save model checkpoint
-    if epoch % 20 == 0:
+    if epoch % 10 == 0:
         model.save(os.path.join(model_dir, '%04d.pt' % epoch))
 
     epoch_loss = []
@@ -238,13 +258,23 @@ for epoch in range(args.initial_epoch, args.epochs):
     '''
     Validation
     '''
+    '''
     if epoch % 5 == 0:
         with torch.no_grad():
-            model.eval()
-            inputs, y_true = next(val_genarator)
-            inputs = [torch.from_numpy(d).to(device).float().permute(0, 4, 1, 2, 3) for d in inputs]
-            y_true = [torch.from_numpy(d).to(device).float().permute(0, 4, 1, 2, 3) for d in y_true]
-            y_pred_val = model(*inputs, regist_full=True)
+            liver_dice = 0
+            eval_dsc = AverageMeter()
+            for v_n in range(9):
+                model.eval()
+                inputs, y_true = next(val_generator)
+                inputs = [torch.from_numpy(d).to(device).float().permute(0, 4, 1, 2, 3) for d in inputs]
+                y_true = [torch.from_numpy(d).to(device).float().permute(0, 4, 1, 2, 3) for d in y_true]
+                y_pred = model(*inputs, regist_full=True)
+                liver_dice = val_losses(y_pred[0], y_true[0])
+                eval_dsc.update(liver_dice)
+            val_epoch_info = 'Epoch %d/%d' % (epoch + 1, args.epochs)
+            val_losses_info = 'avg_dice: %.4e' % (eval_dsc.avg)
+            print(' - '.join((val_epoch_info, val_losses_info)), flush=True)
+    '''
 
 
     # print epoch info
